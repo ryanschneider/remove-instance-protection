@@ -125,8 +125,17 @@ func doUpdate(options *Options) error {
 			return errors.New("missing Launch Template version for instance id " + *instance.InstanceId)
 		}
 		if *instance.LaunchTemplate.LaunchTemplateName != *ltName {
-			// TODO: handle this
-			return errors.New("TODO: tool doesn't currently handle LT changes")
+			log.Printf(
+				"[WARN] instance %s has different Launch Template than ASG: %s:%s",
+				*instance.InstanceId,
+				*instance.LaunchTemplate.LaunchTemplateName,
+				*instance.LaunchTemplate.Version,
+			)
+			if *instance.ProtectedFromScaleIn == false {
+				log.Printf("[DEBUG] instance %s is already not protected from scale-in, skipping", *instance.InstanceId)
+			} else {
+				instanceIdsToRemove = append(instanceIdsToRemove, instance.InstanceId)
+			}
 		}
 
 		version, err := strconv.ParseInt(*instance.LaunchTemplate.Version, 10, 64)
