@@ -18,11 +18,13 @@ import (
 
 // Options contains the flag options
 type Options struct {
-	LogLevel string `long:"log-level" description:"The minimum log level to output (DEBUG, INFO, WARN, ERROR, FATAL)" default:"INFO"`
-	ASG      string `long:"asg" description:"The ASG to update." required:"true"`
-	DryRun   bool   `long:"dry-run" description:"If set updates are not actually performed."`
-	Version  bool   `long:"version" description:"print version and exit"`
-	Force    bool   `long:"force" description:"by default if no instances are found at latest version tool does nothing"`
+	LogLevel              string `long:"log-level" description:"The minimum log level to output (DEBUG, INFO, WARN, ERROR, FATAL)" default:"INFO"`
+	ASG                   string `long:"asg" description:"The ASG to update." required:"true"`
+	DryRun                bool   `long:"dry-run" description:"If set updates are not actually performed."`
+	Version               bool   `long:"version" description:"print version and exit"`
+	Force                 bool   `long:"force" description:"by default if no instances are found at latest version tool does nothing"`
+	PrintLatestInstances  bool   `long:"output-latest-instances" description:"print up-to-date instances to stdout"`
+	PrintInvalidInstances bool   `long:"output-invalid-instances" description:"print out-of-date instances to stdout"`
 }
 
 // These variables are filled by goreleaser
@@ -49,7 +51,7 @@ func main() {
 	filter := &logutils.LevelFilter{
 		Levels:   []logutils.LogLevel{"SPAM", "DEBUG", "INFO", "WARN", "ERROR", "DRYRUN"},
 		MinLevel: logutils.LogLevel(options.LogLevel),
-		Writer:   os.Stdout,
+		Writer:   os.Stderr,
 	}
 	log.SetOutput(filter)
 
@@ -118,7 +120,8 @@ func doUpdate(options *Options) error {
 	latestVersion := *lt.LatestVersionNumber
 	log.Printf("[INFO] ASG %s has latest version %d, looking for old instances...", options.ASG, latestVersion)
 	instanceIdsToRemove := make([]*string, 0)
-	latestInstanceFound := false
+	latestInstances := make([]string, 0)
+	invalidInstances := make([]string, 0)
 
 	for _, instance := range asg.Instances {
 		if instance.LaunchTemplate == nil || instance.LaunchTemplate.Version == nil {
@@ -145,13 +148,25 @@ func doUpdate(options *Options) error {
 
 		if version != latestVersion {
 			log.Printf("[DEBUG] instance %s has old version %d", *instance.InstanceId, version)
+			invalidInstances = append(invalidInstances, *instance.InstanceId)
 			if *instance.ProtectedFromScaleIn == false {
 				log.Printf("[DEBUG] old instance %s is already not protected from scale-in, skipping", *instance.InstanceId)
 			} else {
 				instanceIdsToRemove = append(instanceIdsToRemove, instance.InstanceId)
 			}
 		} else {
-			latestInstanceFound = true
+			latestInstances = append(latestInstances, *instance.InstanceId)
+		}
+	}
+
+	if options.PrintLatestInstances {
+		for _, instance := range latestInstances {
+			fmt.Println(instance)
+		}
+	}
+	if options.PrintInvalidInstances {
+		for _, instance := range invalidInstances {
+			fmt.Println(instance)
 		}
 	}
 
@@ -160,7 +175,7 @@ func doUpdate(options *Options) error {
 		return nil
 	}
 
-	if !latestInstanceFound {
+	if len(latestInstances) == 0 {
 		log.Printf("[WARN] No instances at latest Launch Template version %d found", latestVersion)
 		if !options.Force {
 			log.Printf("[WARN] no changes made, use `--force` flag to override this behavior")
