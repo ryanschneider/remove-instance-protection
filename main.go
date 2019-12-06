@@ -124,6 +124,11 @@ func doUpdate(options *Options) error {
 		if instance.LaunchTemplate == nil || instance.LaunchTemplate.Version == nil {
 			return errors.New("missing Launch Template version for instance id " + *instance.InstanceId)
 		}
+		if *instance.LaunchTemplate.LaunchTemplateName != *ltName {
+			// TODO: handle this
+			return errors.New("TODO: tool doesn't currently handle LT changes")
+		}
+
 		version, err := strconv.ParseInt(*instance.LaunchTemplate.Version, 10, 64)
 		if err != nil {
 			return errors.Wrap(err, "invalid instance Launch Template Version")
