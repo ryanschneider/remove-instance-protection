@@ -188,7 +188,7 @@ func doUpdate(options *Options) error {
 	if options.DryRun {
 		log.Printf("[DRYRUN] Removing scale in protection for %d instances", len(instanceIdsToRemove))
 	} else {
-		log.Printf("[DEBUG] Removing scale in protection for %d instances", len(instanceIdsToRemove))
+		log.Printf("[INFO] Removing scale in protection for %d instances", len(instanceIdsToRemove))
 	}
 
 	// partition into groups of at most 50
