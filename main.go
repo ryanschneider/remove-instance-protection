@@ -139,6 +139,7 @@ func doUpdate(options *Options) error {
 			} else {
 				instanceIdsToRemove = append(instanceIdsToRemove, instance.InstanceId)
 			}
+			continue
 		}
 
 		version, err := strconv.ParseInt(*instance.LaunchTemplate.Version, 10, 64)
