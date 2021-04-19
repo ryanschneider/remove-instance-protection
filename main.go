@@ -5,11 +5,13 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/autoscaling"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/elbv2"
 	"github.com/hashicorp/logutils"
 	flags "github.com/jessevdk/go-flags"
 	"github.com/meirf/gopart"
@@ -25,6 +27,7 @@ type Options struct {
 	Force                 bool   `long:"force" description:"by default if no instances are found at latest version tool does nothing"`
 	PrintLatestInstances  bool   `long:"output-latest-instances" description:"print up-to-date instances to stdout"`
 	PrintInvalidInstances bool   `long:"output-invalid-instances" description:"print out-of-date instances to stdout"`
+	Deregister            bool   `long:"deregister-from-target-groups" description:"remove old instances from target groups as well"`
 }
 
 // These variables are filled by goreleaser
@@ -71,6 +74,7 @@ func doUpdate(options *Options) error {
 		SharedConfigState: session.SharedConfigEnable,
 	}))
 	asgClient := autoscaling.New(sess)
+	albClient := elbv2.New(sess)
 
 	log.Printf("[DEBUG] describing ASG %s...", options.ASG)
 	asgResponse, err := asgClient.DescribeAutoScalingGroups(&autoscaling.DescribeAutoScalingGroupsInput{
@@ -122,6 +126,7 @@ func doUpdate(options *Options) error {
 	instanceIdsToRemove := make([]*string, 0)
 	latestInstances := make([]string, 0)
 	invalidInstances := make([]string, 0)
+	oldInstances := make([]*string, 0)
 
 	for _, instance := range asg.Instances {
 		if instance.LaunchTemplate == nil || instance.LaunchTemplate.Version == nil {
@@ -136,6 +141,7 @@ func doUpdate(options *Options) error {
 			)
 			if *instance.ProtectedFromScaleIn == false {
 				log.Printf("[DEBUG] instance %s is already not protected from scale-in, skipping", *instance.InstanceId)
+				oldInstances = append(oldInstances, instance.InstanceId)
 			} else {
 				instanceIdsToRemove = append(instanceIdsToRemove, instance.InstanceId)
 			}
@@ -152,6 +158,7 @@ func doUpdate(options *Options) error {
 			invalidInstances = append(invalidInstances, *instance.InstanceId)
 			if *instance.ProtectedFromScaleIn == false {
 				log.Printf("[DEBUG] old instance %s is already not protected from scale-in, skipping", *instance.InstanceId)
+				oldInstances = append(oldInstances, instance.InstanceId)
 			} else {
 				instanceIdsToRemove = append(instanceIdsToRemove, instance.InstanceId)
 			}
@@ -168,6 +175,42 @@ func doUpdate(options *Options) error {
 	if options.PrintInvalidInstances {
 		for _, instance := range invalidInstances {
 			fmt.Println(instance)
+		}
+	}
+
+	if options.Deregister && len(latestInstances) > 0 && len(oldInstances) > 0 {
+		// find target groups to remove instances from
+		for _, tg := range asg.TargetGroupARNs {
+			healthy, err := albClient.DescribeTargetHealth(&elbv2.DescribeTargetHealthInput{
+				TargetGroupArn: tg,
+			})
+			if err != nil {
+				return errors.Wrapf(err, "could not get target group instances for %s", *tg)
+			}
+
+			targets := make([]*elbv2.TargetDescription, 0)
+			for _, h := range healthy.TargetHealthDescriptions {
+				for _, old := range oldInstances {
+					if *h.Target.Id == *old {
+						targets = append(targets, h.Target)
+					}
+				}
+			}
+
+			if options.DryRun {
+				for _, target := range targets {
+					log.Printf("[DRYRUN] would remove instance %s from target group %s", strings.ReplaceAll(target.String(), "\n", ""), *tg)
+				}
+			} else {
+				_, err = albClient.DeregisterTargets(&elbv2.DeregisterTargetsInput{
+					TargetGroupArn: tg,
+					Targets:        targets,
+				})
+				if err != nil {
+					return errors.Wrapf(err, "could not deregister targets from %s", *tg)
+				}
+				log.Printf("[INFO] Removed %d instances from %s", len(targets), *tg)
+			}
 		}
 	}
 
