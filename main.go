@@ -127,6 +127,7 @@ func doUpdate(options *Options) error {
 	latestInstances := make([]string, 0)
 	invalidInstances := make([]string, 0)
 	oldInstances := make([]*string, 0)
+	instancesToDeregister := make([]*string, 0)
 
 	for _, instance := range asg.Instances {
 		if instance.LaunchTemplate == nil || instance.LaunchTemplate.Version == nil {
@@ -178,7 +179,10 @@ func doUpdate(options *Options) error {
 		}
 	}
 
-	if options.Deregister && len(latestInstances) > 0 && len(oldInstances) > 0 {
+	instancesToDeregister = append(instancesToDeregister, oldInstances...)
+	instancesToDeregister = append(instancesToDeregister, instanceIdsToRemove...)
+
+	if options.Deregister && len(latestInstances) > 0 && len(instancesToDeregister) > 0 {
 		// find target groups to remove instances from
 		for _, tg := range asg.TargetGroupARNs {
 			healthy, err := albClient.DescribeTargetHealth(&elbv2.DescribeTargetHealthInput{
@@ -189,10 +193,12 @@ func doUpdate(options *Options) error {
 			}
 
 			targets := make([]*elbv2.TargetDescription, 0)
+		TARGETS: // label to goto if target is found
 			for _, h := range healthy.TargetHealthDescriptions {
-				for _, old := range oldInstances {
+				for _, old := range instancesToDeregister {
 					if *h.Target.Id == *old {
 						targets = append(targets, h.Target)
+						continue TARGETS
 					}
 				}
 			}
