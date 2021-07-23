@@ -203,19 +203,24 @@ func doUpdate(options *Options) error {
 				}
 			}
 
-			if options.DryRun {
-				for _, target := range targets {
-					log.Printf("[DRYRUN] would remove instance %s from target group %s", strings.ReplaceAll(target.String(), "\n", ""), *tg)
+			for partition := range gopart.Partition(len(targets), 50) {
+				targets := targets[partition.Low:partition.High]
+
+				if options.DryRun {
+					for _, target := range targets {
+						log.Printf("[DRYRUN] would remove instance %s from target group %s", strings.ReplaceAll(target.String(), "\n", ""), *tg)
+					}
+				} else {
+
+					_, err = albClient.DeregisterTargets(&elbv2.DeregisterTargetsInput{
+						TargetGroupArn: tg,
+						Targets:        targets,
+					})
+					if err != nil {
+						return errors.Wrapf(err, "could not deregister targets from %s", *tg)
+					}
+					log.Printf("[INFO] Removed %d instances from %s", len(targets), *tg)
 				}
-			} else {
-				_, err = albClient.DeregisterTargets(&elbv2.DeregisterTargetsInput{
-					TargetGroupArn: tg,
-					Targets:        targets,
-				})
-				if err != nil {
-					return errors.Wrapf(err, "could not deregister targets from %s", *tg)
-				}
-				log.Printf("[INFO] Removed %d instances from %s", len(targets), *tg)
 			}
 		}
 	}
