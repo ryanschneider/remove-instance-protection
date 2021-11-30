@@ -259,7 +259,7 @@ func doUpdate(options *Options) error {
 		log.Printf("[DEBUG] calling SetInstanceProtection with %d instances", len(instanceIds))
 		_, err = asgClient.SetInstanceProtection(&autoscaling.SetInstanceProtectionInput{
 			AutoScalingGroupName: aws.String(options.ASG),
-			InstanceIds:          instanceIdsToRemove,
+			InstanceIds:          instanceIds,
 			ProtectedFromScaleIn: aws.Bool(false),
 		})
 		if err != nil {
